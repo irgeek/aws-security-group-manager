@@ -31,13 +31,20 @@ aws cloudformation deploy \
   --stack-name <STACK_NAME>
 ```
 
-* Configuration
+### Ingress Configuration
 
 The Lambda Function looks for an environment variable called `ALLOW_INGRESS` to
 get the list of security groups and ports to open up temporarily for each
 request. The format is a comma-separated list of entries. Each entry is the
 security group Id, protocol and port joined together with colons. The list can
 be easily managed in the CloudFormation template.
+
+```
+ALLOW_INGRESS: !Join
+  - ','
+  - - sg-xxxxxxxx:TCP:22
+    - sg-yyyyyyyy:TCP:80
+```
 
 ### Starting the State Machine
 
