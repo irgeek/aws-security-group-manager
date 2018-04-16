@@ -1,0 +1,105 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Step Functions Example
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  SecurityGroupStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      DefinitionString: !Sub |-
+        {
+          "Comment": "Add CIDR entries to security groups and remove them after a timeout.",
+          "StartAt": "AddCommand",
+          "Version": "1.0",
+          "States": {
+            "AddCommand": {
+              "Type":"Pass",
+              "Result": true,
+              "ResultPath": "$.AddCidrEntries",
+              "Next":"AddCidrEntries"
+            },
+            "AddCidrEntries": {
+              "Type": "Task",
+              "Resource": "${SecurityGroupManager.Arn}",
+              "Retry": [{
+                "ErrorEquals": ["States.TaskFailed"],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
+              }],
+              "Next": "Wait"
+            },
+            "Wait": {
+              "Type": "Wait",
+              "SecondsPath": "$.delay",
+              "Next": "RemoveCommand"
+            },
+            "RemoveCommand": {
+              "Type":"Pass",
+              "Result": true,
+              "ResultPath": "$.RemoveCidrEntries",
+              "Next":"RemoveCidrEntries"
+            },
+            "RemoveCidrEntries": {
+              "Type": "Task",
+              "Resource": "${SecurityGroupManager.Arn}",
+              "Retry": [{
+                "ErrorEquals": ["States.TaskFailed"],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
+              }],
+              "End": true
+            }
+          }
+        }
+      RoleArn: !Sub ${SecurityGroupStateMachineRole.Arn}
+
+  SecurityGroupManager:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: security_group_manager/
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.6
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - !Ref SecurityGroupManagerPolicy
+      Environment:
+        Variables:
+          ALLOW_INGRESS: !Join
+            - ','
+            - - sg-xxxxxxxx:TCP:22
+              - sg-yyyyyyyy:TCP:80
+
+  SecurityGroupManagerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description:
+        Give the SecurityGroupManager Lambda access to security groups.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:AuthorizeSecurityGroupIngress
+              - ec2:RevokeSecurityGroupIngress
+            Resource: '*'
+
+  SecurityGroupStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: lambda
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !Sub ${SecurityGroupManager.Arn}
